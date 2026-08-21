@@ -216,6 +216,88 @@
         </form>
       </section>
 
+      <!-- BUILD TAB -->
+      <section class="tab-pane" data-tab="build">
+        <div class="subbar">
+          <h2 class="pane-title">Compile & Bundle</h2>
+          <select id="buildLang" class="select lang" aria-label="Build target">
+            <option value="transpile">Transpile (TS/JSX → JS)</option>
+            <option value="bundle">Bundle entry → IIFE</option>
+            <option value="format">Format</option>
+          </select>
+          <button class="runbtn" id="buildBtn">Build ▶</button>
+        </div>
+        <div class="subbar" style="padding-top:0">
+          <label class="field" style="flex:1;margin:0">
+            <span class="field-label">Entry file</span>
+            <select id="buildEntry" class="select" style="width:100%"></select>
+          </label>
+        </div>
+        <pre class="terminal" id="buildOutput" aria-live="polite"></pre>
+        <div class="subbar" style="border-top:1px solid var(--line-soft);border-bottom:0;background:#1a1d21">
+          <button class="ghostbtn" id="saveBuildOutputBtn">Save output as…</button>
+          <button class="ghostbtn" id="copyBuildOutputBtn">Copy</button>
+        </div>
+      </section>
+
+      <!-- AGENT TAB -->
+      <section class="tab-pane" data-tab="agent">
+        <div class="subbar">
+          <h2 class="pane-title">Agent</h2>
+          <select id="agentProvider" class="select" aria-label="Agent provider">
+            <option value="remote">Remote API</option>
+            <option value="local">Local model</option>
+          </select>
+          <button class="runbtn" id="agentStartBtn">Run ▶</button>
+          <button class="ghostbtn" id="agentStopBtn">Stop</button>
+        </div>
+        <div class="chat-log" id="agentLog" aria-live="polite"></div>
+        <form class="chat-input-row" id="agentForm">
+          <textarea id="agentInput" class="chat-input" rows="1" placeholder="Goal for the agent, e.g. 'add a fibonacci function to main.js and run it'"></textarea>
+          <button class="sendbtn" type="submit" aria-label="Send">
+            <svg viewBox="0 0 24 24"><path d="M3 11l18-8-8 18-2-7z"/></svg>
+          </button>
+        </form>
+      </section>
+
+      <!-- GIT TAB -->
+      <section class="tab-pane" data-tab="git">
+        <div class="subbar"><h2 class="pane-title">Push to GitHub</h2></div>
+        <form class="settings-form" id="gitForm" autocomplete="off">
+          <label class="field">
+            <span class="field-label">GitHub token</span>
+            <input class="input" type="password" id="ghToken" placeholder="ghp_…" autocomplete="off" />
+            <span class="field-help">Personal access token. Needs <code>repo</code> scope (classic) or Contents: Read &amp; write (fine-grained).</span>
+          </label>
+          <div class="row" style="margin-bottom:14px">
+            <button type="button" class="ghostbtn" id="ghLoginBtn">Sign in &amp; verify</button>
+            <span id="ghUser" class="hint" style="margin:0"></span>
+          </div>
+          <label class="field">
+            <span class="field-label">Owner</span>
+            <input class="input" type="text" id="ghOwner" placeholder="e.g. bryanf2311" />
+          </label>
+          <label class="field">
+            <span class="field-label">Repository</span>
+            <input class="input" type="text" id="ghRepo" placeholder="e.g. codex-iphone" />
+          </label>
+          <label class="field">
+            <span class="field-label">Branch</span>
+            <input class="input" type="text" id="ghBranch" placeholder="main" />
+          </label>
+          <label class="field">
+            <span class="field-label">Commit message</span>
+            <input class="input" type="text" id="ghMessage" placeholder="Update from Codex" />
+          </label>
+          <div class="row">
+            <button type="submit" class="primarybtn" id="ghPushBtn">Push all files</button>
+            <button type="button" class="ghostbtn" id="ghHistoryBtn">View history</button>
+          </div>
+          <p class="hint" id="ghStatus" style="white-space:pre-wrap"></p>
+          <ul id="ghCommits" class="filelist" style="padding:0;margin:0;flex:0 0 auto;max-height:240px"></ul>
+        </form>
+      </section>
+
     </main>
 
     <!-- Bottom tab bar -->
@@ -228,13 +310,25 @@
         <svg viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
         <span>Files</span>
       </button>
-      <button class="tabbtn" data-tab="chat" role="tab">
-        <svg viewBox="0 0 24 24"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H8l-4 4V6a1 1 0 0 1 1-1z"/></svg>
-        <span>Pair</span>
-      </button>
       <button class="tabbtn" data-tab="run" role="tab">
         <svg viewBox="0 0 24 24"><path d="M6 4l14 8L6 20z"/></svg>
         <span>Run</span>
+      </button>
+      <button class="tabbtn" data-tab="build" role="tab">
+        <svg viewBox="0 0 24 24"><path d="M4 17l6-6-4-4 6-6h4l-6 6 6 6-6 6z"/></svg>
+        <span>Build</span>
+      </button>
+      <button class="tabbtn" data-tab="agent" role="tab">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>
+        <span>Agent</span>
+      </button>
+      <button class="tabbtn" data-tab="git" role="tab">
+        <svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M6 8.5v7M8.5 6h7a3 3 0 0 1 3 3"/></svg>
+        <span>Git</span>
+      </button>
+      <button class="tabbtn" data-tab="chat" role="tab">
+        <svg viewBox="0 0 24 24"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H8l-4 4V6a1 1 0 0 1 1-1z"/></svg>
+        <span>Pair</span>
       </button>
       <button class="tabbtn" data-tab="settings" role="tab">
         <svg viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm9 4l-1.7-.3-.6-1.5 1-1.4-1.8-1.8-1.4 1-1.5-.6L15 6h-2l-.3 1.7-1.5.6-1.4-1L7.9 9.1l1 1.4-.6 1.5L6.7 12l.3 1.7 1.5.6-1 1.4 1.8 1.8 1.4-1 1.5.6L13 18h2l.3-1.7 1.5-.6 1.4 1 1.8-1.8-1-1.4.6-1.5z"/></svg>
@@ -244,13 +338,13 @@
 
     <!-- Modal -->
     <div class="modal-backdrop" id="modalBackdrop" hidden>
-      <div class="modal" role="dialog" aria-modal="true">
-        <h3 id="modalTitle">Title</h3>
-        <p id="modalBody">Body</p>
-        <input id="modalInput" class="input" />
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <h3 id="modalTitle"></h3>
+        <p id="modalBody"></p>
+        <input id="modalInput" class="input" type="text" />
         <div class="row end">
-          <button class="ghostbtn" id="modalCancel">Cancel</button>
-          <button class="primarybtn" id="modalOk">OK</button>
+          <button type="button" class="ghostbtn" id="modalCancel">Cancel</button>
+          <button type="button" class="primarybtn" id="modalOk">OK</button>
         </div>
       </div>
     </div>
@@ -264,6 +358,9 @@
   <script src="js/runner.js"></script>
   <script src="js/chat.js"></script>
   <script src="js/localModel.js"></script>
+  <script src="js/compiler.js"></script>
+  <script src="js/git.js"></script>
+  <script src="js/agent.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

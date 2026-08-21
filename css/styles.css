@@ -468,10 +468,11 @@ details.local-card > summary:hover { color: var(--ink); }
 /* ── Tab bar ─────────────────────────────────────────────────── */
 .tabbar {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(8, 1fr);
   border-top: 1px solid var(--line);
   background: linear-gradient(180deg, #1d2026, #16181c);
   padding-bottom: var(--safe-bot);
+  overflow-x: auto;
 }
 .tabbtn {
   background: transparent;

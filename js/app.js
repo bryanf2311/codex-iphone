@@ -20,6 +20,10 @@
     systemPrompt: "You are Codex, a concise coding assistant running on an iPhone. Reply in fenced code blocks. Keep prose short.",
     hfToken: "",
     customModelId: "",
+    ghToken: "",
+    ghOwner: "",
+    ghRepo: "",
+    ghBranch: "main",
     saveTimer: null,
   };
 
@@ -77,6 +81,30 @@
     modalOk: $("modalOk"),
     modalCancel: $("modalCancel"),
     toast: $("toast"),
+    buildLang: $("buildLang"),
+    buildBtn: $("buildBtn"),
+    buildEntry: $("buildEntry"),
+    buildOutput: $("buildOutput"),
+    saveBuildOutputBtn: $("saveBuildOutputBtn"),
+    copyBuildOutputBtn: $("copyBuildOutputBtn"),
+    agentProvider: $("agentProvider"),
+    agentStartBtn: $("agentStartBtn"),
+    agentStopBtn: $("agentStopBtn"),
+    agentLog: $("agentLog"),
+    agentForm: $("agentForm"),
+    agentInput: $("agentInput"),
+    ghForm: $("gitForm"),
+    ghToken: $("ghToken"),
+    ghLoginBtn: $("ghLoginBtn"),
+    ghUser: $("ghUser"),
+    ghOwner: $("ghOwner"),
+    ghRepo: $("ghRepo"),
+    ghBranch: $("ghBranch"),
+    ghMessage: $("ghMessage"),
+    ghPushBtn: $("ghPushBtn"),
+    ghHistoryBtn: $("ghHistoryBtn"),
+    ghStatus: $("ghStatus"),
+    ghCommits: $("ghCommits"),
   };
 
   // ── UI helpers ───────────────────────────────────────────────
@@ -95,21 +123,29 @@
   }
   function promptModal(title, body, def = "") {
     return new Promise((resolve) => {
-      els.modalTitle.textContent = title;
+      if (!title) { console.warn("promptModal called without a title"); resolve(null); return; }
+      els.modalTitle.textContent = title || "";
       els.modalBody.textContent = body || "";
-      els.modalInput.value = def;
+      els.modalInput.value = def == null ? "" : def;
       els.modalInput.style.display = def === null ? "none" : "";
       els.modal.hidden = false;
-      setTimeout(() => els.modalInput.focus(), 50);
+      els.modal.removeAttribute("hidden");
+      setTimeout(() => { els.modalInput.focus(); els.modalInput.select(); }, 60);
       const ok = () => { cleanup(); resolve(els.modalInput.value); };
       const cancel = () => { cleanup(); resolve(null); };
       function cleanup() {
         els.modalOk.removeEventListener("click", ok);
         els.modalCancel.removeEventListener("click", cancel);
+        els.modal.removeEventListener("click", backdrop);
+        document.removeEventListener("keydown", onKey, true);
         els.modal.hidden = true;
       }
+      function backdrop(e) { if (e.target === els.modal) cancel(); }
+      function onKey(e) { if (e.key === "Escape") cancel(); else if (e.key === "Enter" && document.activeElement === els.modalInput) { e.preventDefault(); ok(); } }
       els.modalOk.addEventListener("click", ok);
       els.modalCancel.addEventListener("click", cancel);
+      els.modal.addEventListener("click", backdrop);
+      document.addEventListener("keydown", onKey, true);
     });
   }
 
@@ -135,6 +171,7 @@
     state.files = await DB.Files.list();
     renderFileSelect();
     renderFileList();
+    rebuildBuildEntrySelect();
     if (!state.activeFile && state.files.length) selectFile(state.files[0].name);
   }
   function renderFileSelect() {
@@ -360,12 +397,17 @@
     els.systemPrompt.value = state.systemPrompt;
     if (els.hfToken) els.hfToken.value = state.hfToken ? "•".repeat(8) : "";
     if (els.customModelId) els.customModelId.value = state.customModelId || "";
+    if (els.ghToken) els.ghToken.value = state.ghToken ? "•".repeat(8) : "";
+    if (els.ghOwner) els.ghOwner.value = state.ghOwner || "";
+    if (els.ghRepo) els.ghRepo.value = state.ghRepo || "";
+    if (els.ghBranch) els.ghBranch.value = state.ghBranch || "main";
     document.querySelectorAll(".provider-pills button").forEach((b) => {
       b.classList.toggle("active", b.dataset.provider === state.provider);
     });
     LocalModel.setToken(state.hfToken || "");
     rebuildLocalModelUI();
     refreshCacheList();
+    rebuildBuildEntrySelect();
   }
   function rebuildLocalModelUI() {
     const list = $("localModelList");
@@ -582,6 +624,201 @@
     refreshCacheList();
     rebuildLocalModelUI();
     rebuildModelSelect();
+  });
+
+  // ── Build tab ────────────────────────────────────────────────
+  function rebuildBuildEntrySelect() {
+    if (!els.buildEntry) return;
+    const prev = els.buildEntry.value;
+    els.buildEntry.innerHTML = "";
+    state.files.forEach((f) => {
+      const o = document.createElement("option");
+      o.value = f.name;
+      o.textContent = f.name;
+      els.buildEntry.appendChild(o);
+    });
+    if (prev && state.files.find((f) => f.name === prev)) els.buildEntry.value = prev;
+    else if (state.activeFile) els.buildEntry.value = state.activeFile;
+  }
+  els.buildBtn.addEventListener("click", async () => {
+    const target = els.buildLang.value;
+    const entryName = els.buildEntry.value;
+    if (!entryName) { toast("No entry file"); return; }
+    const file = await DB.Files.get(entryName);
+    if (!file) { toast("File missing"); return; }
+    els.buildOutput.textContent = `[${target}] ${entryName} → …\n`;
+    try {
+      if (target === "transpile") {
+        const lang = langFromName(entryName);
+        const out = await window.CodexCompiler.transpile(file.content, lang);
+        const baseName = entryName.replace(/\.(ts|tsx|jsx)$/i, "") + ".compiled.js";
+        await DB.Files.put({ name: baseName, content: out.code, language: "javascript" });
+        await loadFiles();
+        els.buildOutput.textContent = `// transpiled to ${baseName} (${out.code.length} chars)\n${out.code}`;
+        toast("Saved " + baseName);
+      } else if (target === "bundle") {
+        const out = await window.CodexCompiler.bundle(entryName, state.files.map((f) => ({ name: f.name, content: f.content })));
+        const baseName = entryName.replace(/\.[^.]+$/, "") + ".bundle.js";
+        await DB.Files.put({ name: baseName, content: out.code, language: "javascript" });
+        await loadFiles();
+        const warn = out.warnings.length ? `\n// warnings:\n// ${out.warnings.join("\n// ")}` : "";
+        els.buildOutput.textContent = `// bundled to ${baseName} (${out.code.length} chars)${warn}\n${out.code}`;
+        toast("Saved " + baseName);
+      } else if (target === "format") {
+        const out = await window.CodexCompiler.format(file.content, langFromName(entryName));
+        await DB.Files.put({ name: entryName, content: out, language: langFromName(entryName) });
+        await loadFiles();
+        Editor.setValue(out);
+        els.buildOutput.textContent = "// formatted " + entryName + "\n" + out;
+        toast("Formatted " + entryName);
+      }
+    } catch (e) {
+      console.error(e);
+      els.buildOutput.textContent = "// error: " + (e.message || e);
+      toast("Build failed: " + (e.message || e));
+    }
+  });
+  els.copyBuildOutputBtn.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(els.buildOutput.textContent || ""); toast("Copied"); }
+    catch (e) { toast("Copy failed"); }
+  });
+  els.saveBuildOutputBtn.addEventListener("click", async () => {
+    const name = await promptModal("Save build output", "File name", "build-output.txt");
+    if (!name) return;
+    await DB.Files.put({ name, content: els.buildOutput.textContent || "", language: "plaintext" });
+    await loadFiles();
+    toast("Saved " + name);
+  });
+
+  // ── Agent tab ─────────────────────────────────────────────────
+  let agentAbort = null;
+  function appendAgent(kind, payload) {
+    const div = document.createElement("div");
+    div.className = "msg " + (kind === "user" ? "user" : "assistant");
+    let inner = `<span class="role-tag">${kind}</span><span class="body"></span>`;
+    div.innerHTML = inner;
+    const body = div.querySelector(".body");
+    if (kind === "tool_call") body.innerHTML = `→ <b>${payload.name}</b>(${JSON.stringify(payload.args)})`;
+    else if (kind === "tool_result") body.innerHTML = (payload.ok ? "✓" : "✗") + " <b>" + payload.name + "</b>: " +
+      (payload.ok ? "<pre>" + escapeHTML(JSON.stringify(payload.result, null, 2).slice(0, 400)) + "</pre>" : "<span style='color:var(--err)'>" + escapeHTML(payload.error) + "</span>");
+    else if (kind === "text") body.textContent = payload.text || "";
+    else if (kind === "step") body.innerHTML = `<span class="role-tag">step ${payload.index + 1}</span>`;
+    else if (kind === "done") body.innerHTML = `<span class="role-tag">done · ${payload.reason}</span>`;
+    els.agentLog.appendChild(div);
+    els.agentLog.scrollTop = els.agentLog.scrollHeight;
+  }
+  els.agentForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const goal = els.agentInput.value.trim();
+    if (!goal) return;
+    els.agentInput.value = "";
+    appendAgent("user", { text: goal });
+    appendAgent("step", { index: 0 });
+    agentAbort = new AbortController();
+    setStatus("ai", "AGENT RUNNING", null);
+    try {
+      await window.CodexAgent.run({
+        provider: els.agentProvider.value,
+        ctx: {
+          DB, Runner, Chat,
+          apiBase: state.apiBase,
+          apiKey: state.apiKey,
+          model: state.defaultModel,
+          systemPrompt: state.systemPrompt,
+          onChange: () => { loadFiles().then(() => rebuildBuildEntrySelect()); },
+        },
+        goal,
+        maxSteps: 6,
+        abortSignal: agentAbort.signal,
+        onEvent: (ev) => {
+          if (ev.kind === "text") {
+            // Update last assistant bubble text
+            const last = els.agentLog.querySelectorAll(".msg.assistant");
+            const bubble = last[last.length - 1];
+            if (bubble) bubble.querySelector(".body").textContent = ev.text;
+          } else if (ev.kind === "tool_call") appendAgent("tool_call", ev);
+          else if (ev.kind === "tool_result") appendAgent("tool_result", ev);
+          else if (ev.kind === "step" && ev.index > 0) appendAgent("step", ev);
+          else if (ev.kind === "done") { appendAgent("done", ev); setStatus("ready", "READY", null); }
+        },
+      });
+    } catch (err) {
+      appendAgent("text", { text: "Error: " + (err.message || err) });
+      setStatus("error", "ERROR", null);
+    } finally {
+      agentAbort = null;
+    }
+  });
+  els.agentStopBtn.addEventListener("click", () => { if (agentAbort) agentAbort.abort(); });
+  els.agentInput.addEventListener("input", () => {
+    els.agentInput.style.height = "auto";
+    els.agentInput.style.height = Math.min(140, els.agentInput.scrollHeight) + "px";
+  });
+
+  // ── Git tab ───────────────────────────────────────────────────
+  function ghRealToken() {
+    const v = (els.ghToken.value || "").trim();
+    return v.startsWith("•") ? state.ghToken : v;
+  }
+  els.ghLoginBtn.addEventListener("click", async () => {
+    state.ghToken = ghRealToken();
+    if (!state.ghToken) { toast("Enter a token"); return; }
+    setStatus("ai", "GITHUB SIGN-IN", null);
+    try {
+      const user = await window.CodexGit.getUser(state.ghToken);
+      els.ghUser.textContent = "Signed in as @" + user.login;
+      toast("Hello @" + user.login);
+      setStatus("ready", "READY", null);
+    } catch (e) {
+      els.ghUser.textContent = "Error: " + (e.message || e);
+      toast("Sign-in failed");
+      setStatus("error", "ERROR", null);
+    }
+  });
+  els.ghForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    state.ghToken = ghRealToken();
+    state.ghOwner = els.ghOwner.value.trim();
+    state.ghRepo = els.ghRepo.value.trim();
+    state.ghBranch = (els.ghBranch.value.trim() || "main");
+    await DB.KV.set("settings", { ...state });
+    if (els.ghToken) els.ghToken.value = state.ghToken ? "•".repeat(8) : "";
+    setStatus("ai", "PUSHING", 0);
+    els.ghStatus.textContent = "Reading project files…";
+    try {
+      const files = await DB.Files.list();
+      const entries = files.map((f) => ({ path: f.name, content: f.content }));
+      const message = (els.ghMessage.value.trim()) || "Update from Codex";
+      const result = await window.CodexGit.push(state.ghToken, state.ghOwner, state.ghRepo, state.ghBranch, message, entries, (p) => {
+        els.ghStatus.textContent = p;
+      });
+      els.ghStatus.textContent = `Pushed ${result.filesCommitted} files to ${result.branch}.\nCommit: ${result.sha.slice(0, 7)}\n${result.url}`;
+      toast("Pushed");
+      setStatus("ready", "READY", null);
+    } catch (err) {
+      els.ghStatus.textContent = "Error: " + (err.message || err);
+      toast("Push failed");
+      setStatus("error", "ERROR", null);
+    }
+  });
+  els.ghHistoryBtn.addEventListener("click", async () => {
+    state.ghToken = ghRealToken();
+    state.ghOwner = els.ghOwner.value.trim();
+    state.ghRepo = els.ghRepo.value.trim();
+    if (!state.ghToken || !state.ghOwner || !state.ghRepo) { toast("Fill token + owner/repo first"); return; }
+    els.ghCommits.innerHTML = "";
+    try {
+      const commits = await window.CodexGit.listCommits(state.ghToken, state.ghOwner, state.ghRepo, state.ghBranch, 8);
+      commits.forEach((c) => {
+        const li = document.createElement("li");
+        li.style.cssText = "background:#1d2026;border:1px solid var(--line-soft)";
+        li.innerHTML = `<span class="file-name" style="flex:1"><b>${c.sha.slice(0, 7)}</b> ${escapeHTML(c.commit.message.split("\n")[0])}</span>` +
+          `<span class="file-size">${escapeHTML(c.commit.author.name)}</span>`;
+        els.ghCommits.appendChild(li);
+      });
+    } catch (err) {
+      toast("History failed: " + err.message);
+    }
   });
 
   // ── Boot ─────────────────────────────────────────────────────
