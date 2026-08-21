@@ -1,0 +1,245 @@
+name: Build Codex iOS .ipa
+
+# Build an iPhone-installable .ipa on a GitHub-hosted macOS runner.
+# No Mac required locally — push code, download the .ipa from the Actions tab.
+#
+# Build modes (auto-selected from secrets):
+#   - UNSIGNED: no signing secrets set. Produces a signable .ipa you install
+#     via Sideloadly / AltStore, which re-sign it with your free Apple ID.
+#   - SIGNED: if BUILD_CERTIFICATE_BASE64 + P12_PASSWORD +
+#     PROVISIONING_PROFILE_BASE64 + KEYCHAIN_PASSWORD are set, the .ipa is
+#     signed during the build so you can install it directly on a device
+#     registered to your paid Apple Developer team.
+#
+# How to use:
+#   1. Push this repo to GitHub.
+#   2. The workflow runs on every push to main and on tag pushes (v*).
+#   3. When it finishes, scroll to the bottom of the run, download the
+#      `codex-ipa` artifact, unzip, install Code.ipa with Sideloadly/AltStore.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-ipa:
+    name: Build .ipa (macOS ${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-14]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          which pod || true
+          node -v
+          npm -v
+
+      - name: Select Xcode 15.4
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Set up Ruby (for CocoaPods)
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2"
+          bundler-cache: false
+
+      - name: Install CocoaPods
+        run: |
+          if ! command -v pod >/dev/null 2>&1; then
+            sudo gem install cocoapods --no-document
+          fi
+          pod --version
+
+      - name: Install JS deps
+        run: npm ci || npm install
+
+      - name: Build web bundle
+        run: npm run build
+
+      - name: Add iOS platform
+        run: npx cap add ios
+
+      - name: Sync web assets to iOS project
+        run: npx cap sync ios
+
+      - name: Patch Info.plist for ATS (HF downloads)
+        run: |
+          PLIST=ios/App/App/Info.plist
+          if [ -f "$PLIST" ]; then
+            /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool YES" "$PLIST" 2>/dev/null || \
+              /usr/libexec/PlistBuddy -c "Set :NSAppTransportSecurity:NSAllowsArbitraryLoads true" "$PLIST"
+            echo "Info.plist patched"
+          else
+            echo "Info.plist not found at $PLIST"
+            exit 1
+          fi
+
+      - name: Install CocoaPods deps for the iOS app
+        working-directory: ios/App
+        run: pod install --repo-update
+
+      # ── Optional signing prep (only runs when all signing secrets are set) ──
+      - name: Import signing certificate
+        if: ${{ env.BUILD_CERTIFICATE_BASE64 != '' && env.P12_PASSWORD != '' && env.PROVISIONING_PROFILE_BASE64 != '' && env.KEYCHAIN_PASSWORD != '' }}
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN=build.keychain
+          KEYCHAIN_PATH=$RUNNER_TEMP/$KEYCHAIN
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 3600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+          echo "$BUILD_CERTIFICATE_BASE64" | base64 --decode > $RUNNER_TEMP/cert.p12
+          security import $RUNNER_TEMP/cert.p12 -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychain
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
+
+      - name: Install provisioning profile
+        if: ${{ env.PROVISIONING_PROFILE_BASE64 != '' }}
+        env:
+          PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$PROVISIONING_PROFILE_BASE64" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/build.mobileprovision
+
+      # ── Archive ──
+      - name: Archive (unsigned)
+        if: ${{ env.BUILD_CERTIFICATE_BASE64 == '' || env.P12_PASSWORD == '' || env.PROVISIONING_PROFILE_BASE64 == '' || env.KEYCHAIN_PASSWORD == '' }}
+        working-directory: ios/App
+        run: |
+          xcodebuild \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/Codex.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            ONLY_ACTIVE_ARCH=NO \
+            archive
+
+      - name: Archive (signed)
+        if: ${{ env.BUILD_CERTIFICATE_BASE64 != '' && env.P12_PASSWORD != '' && env.PROVISIONING_PROFILE_BASE64 != '' && env.KEYCHAIN_PASSWORD != '' }}
+        working-directory: ios/App
+        run: |
+          xcodebuild \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/Codex.xcarchive" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            ONLY_ACTIVE_ARCH=NO \
+            archive
+
+      # ── Export .ipa ──
+      - name: Export .ipa (unsigned)
+        if: ${{ env.BUILD_CERTIFICATE_BASE64 == '' || env.P12_PASSWORD == '' || env.PROVISIONING_PROFILE_BASE64 == '' || env.KEYCHAIN_PASSWORD == '' }}
+        working-directory: ios/App
+        run: |
+          mkdir -p "$RUNNER_TEMP/ExportOptions"
+          cat > "$RUNNER_TEMP/ExportOptions/ExportOptions.plist" <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>development</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>destination</key>
+              <string>export</string>
+          </dict>
+          </plist>
+          EOF
+          # For unsigned builds we cannot use exportArchive. Instead, copy
+          # the .app out of the .xcarchive and zip it into a signable .ipa.
+          APP_PATH="$RUNNER_TEMP/Codex.xcarchive/Products/Applications/App.app"
+          mkdir -p "$RUNNER_TEMP/Payload"
+          cp -R "$APP_PATH" "$RUNNER_TEMP/Payload/"
+          cd "$RUNNER_TEMP"
+          zip -qr Code.ipa Payload
+          mkdir -p output
+          cp Code.ipa output/Code.ipa
+          ls -la output
+
+      - name: Export .ipa (signed)
+        if: ${{ env.BUILD_CERTIFICATE_BASE64 != '' && env.P12_PASSWORD != '' && env.PROVISIONING_PROFILE_BASE64 != '' && env.KEYCHAIN_PASSWORD != '' }}
+        working-directory: ios/App
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>development</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>destination</key>
+              <string>export</string>
+              <key>teamID</key>
+              <string>${{ secrets.APPLE_TEAM_ID }}</string>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild \
+            -exportArchive \
+            -archivePath "$RUNNER_TEMP/Codex.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
+          mkdir -p output
+          cp "$RUNNER_TEMP/export/App.ipa" output/Code.ipa
+          ls -la output
+
+      - name: Cleanup keychain
+        if: ${{ always() && env.BUILD_CERTIFICATE_BASE64 != '' }}
+        run: |
+          security delete-keychain $RUNNER_TEMP/build.keychain 2>/dev/null || true
+
+      - name: Upload .ipa artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-ipa
+          path: output/Code.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Attach .ipa to release (on tag)
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        uses: softprops/action-gh-release@v2
+        with:
+          files: output/Code.ipa
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

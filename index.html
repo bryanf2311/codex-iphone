@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Codex" />
+<meta name="theme-color" content="#1a1d21" />
+<meta name="description" content="A coding harness for iPhone. Edit code, run JavaScript and Python locally, and pair-program with an AI model." />
+<link rel="manifest" href="manifest.json" />
+<script>
+  // Service worker only works over http(s); Capacitor's WKWebView uses
+  // a custom scheme so we skip registration in that case. The web app
+  // still loads fine from file:// or capacitor://.
+  if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  }
+</script>
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<link rel="icon" type="image/png" href="icons/icon-192.png" />
+<link rel="stylesheet" href="css/styles.css" />
+<title>Codex · iPhone Coding Harness</title>
+</head>
+<body>
+  <div id="app" class="app">
+
+    <!-- Top instrument bar -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="logo">
+          <span class="logo-mark"></span>
+          <span class="logo-word">CODEX</span>
+        </div>
+      </div>
+      <div class="topbar-center">
+        <div class="status-strip" id="statusStrip" aria-live="polite">
+          <span class="status-led" id="statusLed"></span>
+          <span class="status-text" id="statusText">READY</span>
+          <span class="status-meter" id="statusMeter"><span></span></span>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <button class="iconbtn" id="newFileBtn" aria-label="New file" title="New file">
+          <svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM13 4.5L18.5 10H13zM12 11v6m-3-3h6"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Tab content -->
+    <main class="content" id="content">
+
+      <!-- EDITOR TAB -->
+      <section class="tab-pane" data-tab="editor">
+        <div class="subbar">
+          <select id="fileSelect" class="select" aria-label="Active file"></select>
+          <select id="languageSelect" class="select lang" aria-label="Language">
+            <option value="javascript">JavaScript</option>
+            <option value="typescript">TypeScript</option>
+            <option value="python">Python</option>
+            <option value="html">HTML</option>
+            <option value="css">CSS</option>
+            <option value="json">JSON</option>
+            <option value="markdown">Markdown</option>
+            <option value="plaintext">Plain text</option>
+          </select>
+          <button class="ghostbtn" id="renameBtn" title="Rename">Rename</button>
+          <button class="ghostbtn danger" id="deleteBtn" title="Delete">Delete</button>
+        </div>
+        <div class="editor-wrap">
+          <div id="editor" class="editor"></div>
+          <textarea id="fallbackEditor" class="fallback-editor" spellcheck="false" hidden></textarea>
+        </div>
+      </section>
+
+      <!-- FILES TAB -->
+      <section class="tab-pane" data-tab="files">
+        <div class="subbar">
+          <h2 class="pane-title">Files</h2>
+          <button class="ghostbtn" id="newFileBtn2">New file</button>
+        </div>
+        <ul class="filelist" id="fileList" role="list"></ul>
+        <p class="hint" id="filesHint">All files live on this device. Nothing leaves until you hit Send.</p>
+      </section>
+
+      <!-- CHAT TAB -->
+      <section class="tab-pane" data-tab="chat">
+        <div class="subbar">
+          <h2 class="pane-title">Pair</h2>
+          <select id="modelSelect" class="select" aria-label="Model"></select>
+          <button class="ghostbtn" id="clearChatBtn">Clear</button>
+        </div>
+        <div class="chat-log" id="chatLog" aria-live="polite"></div>
+        <form class="chat-input-row" id="chatForm">
+          <textarea id="chatInput" class="chat-input" rows="1" placeholder="Ask the model to write or fix code…"></textarea>
+          <button class="sendbtn" type="submit" aria-label="Send">
+            <svg viewBox="0 0 24 24"><path d="M3 11l18-8-8 18-2-7z"/></svg>
+          </button>
+        </form>
+      </section>
+
+      <!-- RUN TAB -->
+      <section class="tab-pane" data-tab="run">
+        <div class="subbar">
+          <h2 class="pane-title">Run</h2>
+          <select id="runLang" class="select" aria-label="Run language">
+            <option value="javascript">JavaScript</option>
+            <option value="python">Python (Pyodide)</option>
+            <option value="html">HTML preview</option>
+          </select>
+          <button class="runbtn" id="runBtn">Run ▶</button>
+          <button class="ghostbtn" id="stopBtn">Stop</button>
+        </div>
+        <pre class="terminal" id="terminal" aria-live="polite"></pre>
+        <div class="preview-wrap" id="previewWrap" hidden>
+          <iframe id="preview" class="preview" sandbox="allow-scripts"></iframe>
+        </div>
+      </section>
+
+      <!-- SETTINGS TAB -->
+      <section class="tab-pane" data-tab="settings">
+        <div class="subbar"><h2 class="pane-title">Settings</h2></div>
+        <form class="settings-form" id="settingsForm" autocomplete="off">
+
+          <span class="field-label" style="display:block;margin-bottom:6px">Provider</span>
+          <div class="provider-pills">
+            <button type="button" data-provider="local" class="active">Local Model</button>
+            <button type="button" data-provider="remote">Remote API</button>
+          </div>
+          <p class="hint" style="margin:-6px 0 14px 0">Local: runs entirely on this iPhone, no internet needed once downloaded. Remote: any OpenAI-compatible endpoint.</p>
+
+          <div class="local-card">
+            <h4>Bring a model onto this iPhone</h4>
+            <p class="hint" id="localDevice" style="margin:0 0 10px 0">Device: detecting…</p>
+
+            <p class="hint" style="margin:6px 0 4px 0"><b>① Curated models</b> — tap to download</p>
+            <div class="pick" id="localModelList"></div>
+
+            <p class="hint" style="margin:14px 0 4px 0"><b>② Sideload from your Files app</b> — bring a model you already downloaded</p>
+            <div class="row" style="gap:6px;flex-wrap:wrap">
+              <button type="button" class="ghostbtn" id="pickFolderBtn">Pick folder…</button>
+              <button type="button" class="ghostbtn" id="pickFilesBtn">Pick files…</button>
+              <input type="file" id="folderPicker" webkitdirectory directory multiple hidden />
+              <input type="file" id="filePicker" multiple hidden />
+            </div>
+            <input class="input" type="text" id="sideloadName" placeholder="name for this model (e.g. qwen-coder-local)" style="margin-top:6px" />
+            <select class="select" id="sideloadFamily" style="margin-top:6px;width:100%">
+              <option value="auto">Auto-detect prompt format</option>
+              <option value="qwen">Qwen / Qwen-Coder</option>
+              <option value="llama3">Llama 3</option>
+              <option value="gemma3">Gemma 3</option>
+              <option value="gemma">Gemma 2</option>
+              <option value="phi3">Phi-3</option>
+              <option value="smollm2">SmolLM2</option>
+              <option value="mistral">Mistral / Mixtral</option>
+            </select>
+
+            <p class="hint" style="margin:14px 0 4px 0"><b>③ Download from HuggingFace</b> — any non-gated repo</p>
+            <div class="row" style="gap:6px">
+              <input class="input" type="text" id="customModelId" placeholder="owner/repo, e.g. onnx-community/Qwen2.5-Coder-1.5B-Instruct" style="flex:1;min-width:0" />
+              <button type="button" class="primarybtn" id="loadCustomBtn">Fetch</button>
+            </div>
+
+            <div class="progress" id="localProgress" style="margin-top:14px"><span></span></div>
+            <div class="progress-text" id="localProgressText">Pick how you want to bring a model in. The first load downloads weights into this device's cache; after that the model runs fully offline.</div>
+
+            <div class="row" style="margin-top:10px">
+              <button type="button" class="ghostbtn" id="unloadLocalBtn">Unload current model</button>
+            </div>
+          </div>
+
+          <details class="local-card">
+            <summary style="cursor:pointer;font-family:var(--mono);font-size:12px;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-dim);list-style:none">Advanced · Hugging Face token</summary>
+            <p class="hint" style="margin:8px 0 6px 0">Only needed for <b>gated repos</b> like Gemma 3. Most users can ignore this.</p>
+            <input class="input" type="password" id="hfToken" placeholder="hf_…" autocomplete="off" />
+            <div class="row" style="margin-top:8px">
+              <button type="button" class="ghostbtn" id="saveHfTokenBtn">Save token</button>
+            </div>
+          </details>
+
+          <div class="local-card">
+            <h4>Stored model files</h4>
+            <p class="hint" style="margin:0 0 8px 0">Weights are cached in the browser's Cache Storage. They survive restarts and don't re-download.</p>
+            <ul id="cacheList" class="filelist" style="padding:0;margin:0;flex:0 0 auto;max-height:none"></ul>
+            <div class="row" style="margin-top:8px">
+              <button type="button" class="ghostbtn danger" id="clearCacheBtn">Clear all cached models</button>
+              <button type="button" class="ghostbtn" id="refreshCacheBtn">Refresh</button>
+            </div>
+          </div>
+
+          <label class="field">
+            <span class="field-label">API base URL</span>
+            <input class="input" type="url" id="apiBase" placeholder="https://api.deepseek.com" />
+            <span class="field-help">OpenAI-compatible endpoint. Try DeepSeek, OpenAI, Groq, OpenRouter.</span>
+          </label>
+          <label class="field">
+            <span class="field-label">API key</span>
+            <input class="input" type="password" id="apiKey" placeholder="sk-…" />
+            <span class="field-help">Stored on this device only.</span>
+          </label>
+          <label class="field">
+            <span class="field-label">Default model</span>
+            <input class="input" type="text" id="defaultModel" placeholder="deepseek-coder" />
+          </label>
+          <label class="field">
+            <span class="field-label">System prompt</span>
+            <textarea class="input textarea" id="systemPrompt" rows="3"></textarea>
+          </label>
+          <div class="row">
+            <button type="submit" class="primarybtn">Save</button>
+            <button type="button" class="ghostbtn" id="exportBtn">Export project</button>
+            <button type="button" class="ghostbtn" id="importBtn">Import project</button>
+            <input type="file" id="importFile" accept="application/json" hidden />
+          </div>
+          <p class="hint" id="settingsStatus"></p>
+        </form>
+      </section>
+
+    </main>
+
+    <!-- Bottom tab bar -->
+    <nav class="tabbar" role="tablist">
+      <button class="tabbtn" data-tab="editor" role="tab">
+        <svg viewBox="0 0 24 24"><path d="M8 6l-5 6 5 6M16 6l5 6-5 6M14 4l-4 16"/></svg>
+        <span>Code</span>
+      </button>
+      <button class="tabbtn" data-tab="files" role="tab">
+        <svg viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+        <span>Files</span>
+      </button>
+      <button class="tabbtn" data-tab="chat" role="tab">
+        <svg viewBox="0 0 24 24"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H8l-4 4V6a1 1 0 0 1 1-1z"/></svg>
+        <span>Pair</span>
+      </button>
+      <button class="tabbtn" data-tab="run" role="tab">
+        <svg viewBox="0 0 24 24"><path d="M6 4l14 8L6 20z"/></svg>
+        <span>Run</span>
+      </button>
+      <button class="tabbtn" data-tab="settings" role="tab">
+        <svg viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm9 4l-1.7-.3-.6-1.5 1-1.4-1.8-1.8-1.4 1-1.5-.6L15 6h-2l-.3 1.7-1.5.6-1.4-1L7.9 9.1l1 1.4-.6 1.5L6.7 12l.3 1.7 1.5.6-1 1.4 1.8 1.8 1.4-1 1.5.6L13 18h2l.3-1.7 1.5-.6 1.4 1 1.8-1.8-1-1.4.6-1.5z"/></svg>
+        <span>Setup</span>
+      </button>
+    </nav>
+
+    <!-- Modal -->
+    <div class="modal-backdrop" id="modalBackdrop" hidden>
+      <div class="modal" role="dialog" aria-modal="true">
+        <h3 id="modalTitle">Title</h3>
+        <p id="modalBody">Body</p>
+        <input id="modalInput" class="input" />
+        <div class="row end">
+          <button class="ghostbtn" id="modalCancel">Cancel</button>
+          <button class="primarybtn" id="modalOk">OK</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast" hidden></div>
+  </div>
+
+  <script src="js/db.js"></script>
+  <script src="js/editor.js"></script>
+  <script src="js/runner.js"></script>
+  <script src="js/chat.js"></script>
+  <script src="js/localModel.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

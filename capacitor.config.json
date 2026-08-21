@@ -1,0 +1,18 @@
+{
+  "appId": "com.codex.mobile",
+  "appName": "Codex",
+  "webDir": "www",
+  "backgroundColor": "#1a1d21",
+  "android": {
+    "allowMixedContent": true
+  },
+  "ios": {
+    "contentInset": "automatic",
+    "backgroundColor": "#1a1d21"
+  },
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "capacitor",
+    "hostname": "localhost"
+  }
+}
