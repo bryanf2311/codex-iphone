@@ -134,24 +134,18 @@ jobs:
           echo "$PROVISIONING_PROFILE_BASE64" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/build.mobileprovision
 
       # ── Archive ──
-      - name: Diagnose iOS project layout
-        working-directory: ios/App
-        run: |
-          echo "=== ios/App contents ==="
-          ls -la
-          echo "=== ios/App/App contents ==="
-          ls -la App 2>&1 | head -30
-          echo "=== workspaces ==="
-          find . -name '*.xcworkspace' -maxdepth 4
-          echo "=== schemes ==="
-          xcodebuild -workspace App.xcworkspace -list 2>&1 | head -30 || true
-
       - name: Archive (unsigned)
         if: ${{ env.BUILD_CERTIFICATE_BASE64 == '' || env.P12_PASSWORD == '' || env.PROVISIONING_PROFILE_BASE64 == '' || env.KEYCHAIN_PASSWORD == '' }}
         working-directory: ios/App
         run: |
+          if [ -d App.xcworkspace ]; then
+            PROJECT_FLAG="-workspace App.xcworkspace"
+          else
+            PROJECT_FLAG="-project App.xcodeproj"
+          fi
+          echo "Using $PROJECT_FLAG"
           xcodebuild \
-            -workspace App.xcworkspace \
+            $PROJECT_FLAG \
             -scheme App \
             -configuration Release \
             -sdk iphoneos \
@@ -167,8 +161,13 @@ jobs:
         if: ${{ env.BUILD_CERTIFICATE_BASE64 != '' && env.P12_PASSWORD != '' && env.PROVISIONING_PROFILE_BASE64 != '' && env.KEYCHAIN_PASSWORD != '' }}
         working-directory: ios/App
         run: |
+          if [ -d App.xcworkspace ]; then
+            PROJECT_FLAG="-workspace App.xcworkspace"
+          else
+            PROJECT_FLAG="-project App.xcodeproj"
+          fi
           xcodebuild \
-            -workspace App.xcworkspace \
+            $PROJECT_FLAG \
             -scheme App \
             -configuration Release \
             -sdk iphoneos \
