@@ -95,9 +95,14 @@ jobs:
             exit 1
           fi
 
-      - name: Install CocoaPods deps for the iOS app
+      - name: Install CocoaPods deps for the iOS app (skip if no Podfile)
         working-directory: ios/App
-        run: pod install --repo-update
+        run: |
+          if [ -f Podfile ]; then
+            pod install --repo-update
+          else
+            echo "No Podfile present; Capacitor 8 uses Swift Package Manager. Skipping pod install."
+          fi
 
       # ── Optional signing prep (only runs when all signing secrets are set) ──
       - name: Import signing certificate
@@ -129,6 +134,18 @@ jobs:
           echo "$PROVISIONING_PROFILE_BASE64" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/build.mobileprovision
 
       # ── Archive ──
+      - name: Diagnose iOS project layout
+        working-directory: ios/App
+        run: |
+          echo "=== ios/App contents ==="
+          ls -la
+          echo "=== ios/App/App contents ==="
+          ls -la App 2>&1 | head -30
+          echo "=== workspaces ==="
+          find . -name '*.xcworkspace' -maxdepth 4
+          echo "=== schemes ==="
+          xcodebuild -workspace App.xcworkspace -list 2>&1 | head -30 || true
+
       - name: Archive (unsigned)
         if: ${{ env.BUILD_CERTIFICATE_BASE64 == '' || env.P12_PASSWORD == '' || env.PROVISIONING_PROFILE_BASE64 == '' || env.KEYCHAIN_PASSWORD == '' }}
         working-directory: ios/App
