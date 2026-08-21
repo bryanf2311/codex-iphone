@@ -67,6 +67,11 @@
           <button class="ghostbtn" id="renameBtn" title="Rename">Rename</button>
           <button class="ghostbtn danger" id="deleteBtn" title="Delete">Delete</button>
         </div>
+        <div class="inline-form" id="inlineForm" hidden>
+          <input class="input" type="text" id="inlineInput" placeholder="file name with extension, e.g. main.py" />
+          <button type="button" class="primarybtn" id="inlineOk">OK</button>
+          <button type="button" class="ghostbtn" id="inlineCancel">Cancel</button>
+        </div>
         <div class="editor-wrap">
           <div id="editor" class="editor"></div>
           <textarea id="fallbackEditor" class="fallback-editor" spellcheck="false" hidden></textarea>
@@ -335,19 +340,6 @@
         <span>Setup</span>
       </button>
     </nav>
-
-    <!-- Modal -->
-    <div class="modal-backdrop" id="modalBackdrop" hidden>
-      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-        <h3 id="modalTitle"></h3>
-        <p id="modalBody"></p>
-        <input id="modalInput" class="input" type="text" />
-        <div class="row end">
-          <button type="button" class="ghostbtn" id="modalCancel">Cancel</button>
-          <button type="button" class="primarybtn" id="modalOk">OK</button>
-        </div>
-      </div>
-    </div>
 
     <!-- Toast -->
     <div class="toast" id="toast" hidden></div>

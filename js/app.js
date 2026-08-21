@@ -74,12 +74,8 @@
     statusStrip: $("statusStrip"),
     statusText: $("statusText"),
     statusMeter: $("statusMeter"),
-    modal: $("modalBackdrop"),
-    modalTitle: $("modalTitle"),
-    modalBody: $("modalBody"),
-    modalInput: $("modalInput"),
-    modalOk: $("modalOk"),
-    modalCancel: $("modalCancel"),
+    inlineForm: $("inlineForm"),
+    inlineInput: $("inlineInput"),
     toast: $("toast"),
     buildLang: $("buildLang"),
     buildBtn: $("buildBtn"),
@@ -121,33 +117,28 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { els.toast.hidden = true; }, 2200);
   }
-  function promptModal(title, body, def = "") {
+  // Inline prompt: opens a small bar above the editor. No overlay, no modal.
+  let inlineResolve = null;
+  function inlinePrompt(placeholder, def = "") {
     return new Promise((resolve) => {
-      if (!title) { console.warn("promptModal called without a title"); resolve(null); return; }
-      els.modalTitle.textContent = title || "";
-      els.modalBody.textContent = body || "";
-      els.modalInput.value = def == null ? "" : def;
-      els.modalInput.style.display = def === null ? "none" : "";
-      els.modal.hidden = false;
-      els.modal.removeAttribute("hidden");
-      setTimeout(() => { els.modalInput.focus(); els.modalInput.select(); }, 60);
-      const ok = () => { cleanup(); resolve(els.modalInput.value); };
-      const cancel = () => { cleanup(); resolve(null); };
-      function cleanup() {
-        els.modalOk.removeEventListener("click", ok);
-        els.modalCancel.removeEventListener("click", cancel);
-        els.modal.removeEventListener("click", backdrop);
-        document.removeEventListener("keydown", onKey, true);
-        els.modal.hidden = true;
-      }
-      function backdrop(e) { if (e.target === els.modal) cancel(); }
-      function onKey(e) { if (e.key === "Escape") cancel(); else if (e.key === "Enter" && document.activeElement === els.modalInput) { e.preventDefault(); ok(); } }
-      els.modalOk.addEventListener("click", ok);
-      els.modalCancel.addEventListener("click", cancel);
-      els.modal.addEventListener("click", backdrop);
-      document.addEventListener("keydown", onKey, true);
+      inlineResolve = resolve;
+      els.inlineInput.placeholder = placeholder || "";
+      els.inlineInput.value = def || "";
+      els.inlineForm.hidden = false;
+      setTimeout(() => { els.inlineInput.focus(); els.inlineInput.select(); }, 40);
     });
   }
+  function closeInline(value) {
+    els.inlineForm.hidden = true;
+    const r = inlineResolve; inlineResolve = null;
+    if (r) r(value);
+  }
+  $("inlineOk").addEventListener("click", () => closeInline(els.inlineInput.value));
+  $("inlineCancel").addEventListener("click", () => closeInline(null));
+  els.inlineInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); closeInline(els.inlineInput.value); }
+    else if (e.key === "Escape") { e.preventDefault(); closeInline(null); }
+  });
 
   function extFromName(name) { return (name.split(".").pop() || "").toLowerCase(); }
   function langFromName(name) { return Editor.detectLanguage(name); }
@@ -252,7 +243,7 @@
   els.fileSelect.addEventListener("change", (e) => selectFile(e.target.value));
   els.langSelect.addEventListener("change", () => Editor.setLanguage(els.langSelect.value));
   els.newFileBtn.addEventListener("click", async () => {
-    const name = await promptModal("New file", "Name with extension, e.g. app.py", "untitled.js");
+    const name = await inlinePrompt("file name with extension, e.g. app.py", "untitled.js");
     if (name) createFile(name.trim());
   });
   els.newFileBtn2.addEventListener("click", () => els.newFileBtn.click());
@@ -263,7 +254,7 @@
   });
   els.renameBtn.addEventListener("click", async () => {
     if (!state.activeFile) return;
-    const to = await promptModal("Rename file", "New name with extension", state.activeFile);
+    const to = await inlinePrompt("new file name", state.activeFile);
     if (to) renameFile(state.activeFile, to.trim());
   });
 
@@ -683,7 +674,7 @@
     catch (e) { toast("Copy failed"); }
   });
   els.saveBuildOutputBtn.addEventListener("click", async () => {
-    const name = await promptModal("Save build output", "File name", "build-output.txt");
+    const name = await inlinePrompt("file name for the build output", "build-output.txt");
     if (!name) return;
     await DB.Files.put({ name, content: els.buildOutput.textContent || "", language: "plaintext" });
     await loadFiles();
